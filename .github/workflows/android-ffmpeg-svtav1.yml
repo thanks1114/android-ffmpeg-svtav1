@@ -1,0 +1,82 @@
+name: Build Android FFmpeg + SVT-AV1 (LGPL)
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Install dependencies
+      run: |
+        sudo apt update
+        sudo apt install -y build-essential cmake pkg-config yasm nasm ninja-build
+
+    - name: Download Android NDK
+      run: |
+        wget https://dl.google.com/android/repository/android-ndk-r26d-linux.zip
+        unzip android-ndk-r26d-linux.zip
+        echo "ANDROID_NDK=$PWD/android-ndk-r26d" >> $GITHUB_ENV
+
+    - name: Set toolchain
+      run: |
+        echo "TOOLCHAIN=$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64" >> $GITHUB_ENV
+        echo "TARGET=aarch64-linux-android" >> $GITHUB_ENV
+        echo "API=24" >> $GITHUB_ENV
+
+    - name: Build SVT-AV1
+      run: |
+        cd SVT-AV1
+        mkdir build && cd build
+        cmake .. \
+          -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK/build/cmake/android.toolchain.cmake \
+          -DANDROID_ABI=arm64-v8a \
+          -DANDROID_PLATFORM=24 \
+          -DCMAKE_BUILD_TYPE=Release
+        make -j$(nproc)
+        mkdir -p $GITHUB_WORKSPACE/output/libs
+        cp *.so $GITHUB_WORKSPACE/output/libs/
+
+    - name: Build FFmpeg (LGPL)
+      run: |
+        cd FFmpeg
+        export CC="$TOOLCHAIN/bin/$TARGET$API-clang"
+        export CXX="$TOOLCHAIN/bin/$TARGET$API-clang++"
+        export AR="$TOOLCHAIN/bin/llvm-ar"
+        export AS="$TOOLCHAIN/bin/llvm-as"
+        export LD="$TOOLCHAIN/bin/ld"
+        export STRIP="$TOOLCHAIN/bin/llvm-strip"
+
+        ./configure \
+          --prefix=$PWD/build \
+          --target-os=android \
+          --arch=aarch64 \
+          --enable-cross-compile \
+          --cross-prefix=$TOOLCHAIN/bin/aarch64-linux-android- \
+          --cc="$CC" \
+          --cxx="$CXX" \
+          --enable-shared \
+          --disable-static \
+          --disable-gpl \
+          --disable-nonfree \
+          --enable-libsvtav1 \
+          --extra-cflags="-I$GITHUB_WORKSPACE/SVT-AV1/build" \
+          --extra-ldflags="-L$GITHUB_WORKSPACE/SVT-AV1/build -lSvtAv1Enc -lSvtAv1Dec"
+
+        make -j$(nproc)
+        make install
+
+        cp build/lib/*.so $GITHUB_WORKSPACE/output/libs/
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: android-ffmpeg-svtav1-libs
+        path: output/libs/*.so
