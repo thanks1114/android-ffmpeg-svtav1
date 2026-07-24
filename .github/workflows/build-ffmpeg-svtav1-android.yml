@@ -28,8 +28,8 @@ jobs:
           git clone --depth 1 --branch v1.8.0 https://gitlab.com/AOMediaCodec/SVT-AV1.git
           cd SVT-AV1
           
-          # Android用に pthread_setaffinity_np の呼び出しを空処理に置換
-          sed -i 's/pthread_setaffinity_np/#\/\/ pthread_setaffinity_np/g' Source/Lib/Common/Codec/EbThreads.h
+          # pthread_setaffinity_np の呼び出し全体を安全に (void)0; に置換
+          sed -i 's/pthread_setaffinity_np([^)]*);/(void)0;/g' Source/Lib/Common/Codec/EbThreads.h
 
           mkdir BuildAndroid && cd BuildAndroid
           
