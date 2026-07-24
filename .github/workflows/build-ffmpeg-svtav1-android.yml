@@ -10,10 +10,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Install Build Tools
+      - name: Install Build Dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y cmake ninja-build yasm nasm build-essential pkg-config git
@@ -22,10 +22,9 @@ jobs:
         run: |
           echo "NDK_PATH=$ANDROID_NDK_LATEST_HOME" >> $GITHUB_ENV
 
-      # 1. SVT-AV1 のクロスコンパイル (FFmpeg 6.1 互換の v1.8.0 を指定)
+      # 1. SVT-AV1 のクロスコンパイル (v1.8.0 固定 + Android向けエラー回避フラグ)
       - name: Build and Install SVT-AV1
         run: |
-          # 互換性のある v1.8.0 タグを指定してクローン
           git clone --depth 1 --branch v1.8.0 https://gitlab.com/AOMediaCodec/SVT-AV1.git
           cd SVT-AV1
           mkdir BuildAndroid && cd BuildAndroid
@@ -39,11 +38,12 @@ jobs:
             -DBUILD_SHARED_LIBS=ON \
             -DBUILD_DEC=OFF \
             -DBUILD_APPS=OFF \
+            -DCMAKE_C_FLAGS="-Wno-error=implicit-function-declaration" \
             -DCMAKE_INSTALL_PREFIX=$GITHUB_WORKSPACE/sysroot
           
           ninja install
 
-      # 2. FFmpeg のクロスコンパイル
+      # 2. SVT-AV1 を組み込んだ FFmpeg のクロスコンパイル
       - name: Build FFmpeg Shared Library
         run: |
           git clone --depth 1 --branch release/6.1 https://github.com/FFmpeg/FFmpeg.git ffmpeg-src
@@ -73,12 +73,12 @@ jobs:
 
           make -j$(nproc)
 
-          # 出力用にディレクトリへ整理
+          # 成果物を格納するディレクトリ作成
           mkdir -p $GITHUB_WORKSPACE/output_libs
           cp $SYSROOT/lib/libSvtAv1Enc.so $GITHUB_WORKSPACE/output_libs/
           cp libavformat/libavformat.so $GITHUB_WORKSPACE/output_libs/libffmpeg.so
 
-      # 3. .so ファイルのアップロード
+      # 3. 生成された .so ファイルを GitHub Artifacts として保存
       - name: Upload Native Libraries
         uses: actions/upload-artifact@v4
         with:
