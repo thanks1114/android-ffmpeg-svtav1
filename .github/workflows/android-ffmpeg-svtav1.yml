@@ -1,82 +1,41 @@
-name: Build Android FFmpeg + SVT-AV1 (LGPL)
+name: Build SVT-AV1
 
 on:
   push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
   workflow_dispatch:
 
 jobs:
   build:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout
-      uses: actions/checkout@v4
-      with:
-        submodules: recursive
+      # 1. 自身のメインリポジトリをチェックアウト
+      - name: Checkout main repository
+        uses: actions/checkout@v4
 
-    - name: Install dependencies
-      run: |
-        sudo apt update
-        sudo apt install -y build-essential cmake pkg-config yasm nasm ninja-build
+      # 2. 必要なビルドツール群をインストール
+      - name: Install Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake build-essential yasm nasm
 
-    - name: Download Android NDK
-      run: |
-        wget https://dl.google.com/android/repository/android-ndk-r26d-linux.zip
-        unzip android-ndk-r26d-linux.zip
-        echo "ANDROID_NDK=$PWD/android-ndk-r26d" >> $GITHUB_ENV
+      # 3. SVT-AV1 のソースコードを公式からクローン
+      - name: Clone SVT-AV1
+        run: |
+          git clone https://gitlab.com/AOMediaCodec/SVT-AV1.git
 
-    - name: Set toolchain
-      run: |
-        echo "TOOLCHAIN=$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64" >> $GITHUB_ENV
-        echo "TARGET=aarch64-linux-android" >> $GITHUB_ENV
-        echo "API=24" >> $GITHUB_ENV
+      # 4. SVT-AV1 フォルダに移動してビルドを実行
+      - name: Build SVT-AV1
+        working-directory: ./SVT-AV1
+        run: |
+          cd Build
+          cmake .. -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release
+          make -j$(nproc)
 
-    - name: Build SVT-AV1
-      run: |
-        cd SVT-AV1
-        mkdir build && cd build
-        cmake .. \
-          -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK/build/cmake/android.toolchain.cmake \
-          -DANDROID_ABI=arm64-v8a \
-          -DANDROID_PLATFORM=24 \
-          -DCMAKE_BUILD_TYPE=Release
-        make -j$(nproc)
-        mkdir -p $GITHUB_WORKSPACE/output/libs
-        cp *.so $GITHUB_WORKSPACE/output/libs/
-
-    - name: Build FFmpeg (LGPL)
-      run: |
-        cd FFmpeg
-        export CC="$TOOLCHAIN/bin/$TARGET$API-clang"
-        export CXX="$TOOLCHAIN/bin/$TARGET$API-clang++"
-        export AR="$TOOLCHAIN/bin/llvm-ar"
-        export AS="$TOOLCHAIN/bin/llvm-as"
-        export LD="$TOOLCHAIN/bin/ld"
-        export STRIP="$TOOLCHAIN/bin/llvm-strip"
-
-        ./configure \
-          --prefix=$PWD/build \
-          --target-os=android \
-          --arch=aarch64 \
-          --enable-cross-compile \
-          --cross-prefix=$TOOLCHAIN/bin/aarch64-linux-android- \
-          --cc="$CC" \
-          --cxx="$CXX" \
-          --enable-shared \
-          --disable-static \
-          --disable-gpl \
-          --disable-nonfree \
-          --enable-libsvtav1 \
-          --extra-cflags="-I$GITHUB_WORKSPACE/SVT-AV1/build" \
-          --extra-ldflags="-L$GITHUB_WORKSPACE/SVT-AV1/build -lSvtAv1Enc -lSvtAv1Dec"
-
-        make -j$(nproc)
-        make install
-
-        cp build/lib/*.so $GITHUB_WORKSPACE/output/libs/
-
-    - name: Upload artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: android-ffmpeg-svtav1-libs
-        path: output/libs/*.so
+      # 5. 生成されたバイナリを確認
+      - name: Check Built Executable
+        run: |
+          ./SVT-AV1/Bin/Release/SvtAv1EncApp --help || true
