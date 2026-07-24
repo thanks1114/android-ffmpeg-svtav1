@@ -22,14 +22,14 @@ jobs:
         run: |
           echo "NDK_PATH=$ANDROID_NDK_LATEST_HOME" >> $GITHUB_ENV
 
-      # 1. SVT-AV1 のクロスコンパイル & インストール
+      # 1. SVT-AV1 のクロスコンパイル (FFmpeg 6.1 互換の v1.8.0 を指定)
       - name: Build and Install SVT-AV1
         run: |
-          git clone https://gitlab.com/AOMediaCodec/SVT-AV1.git
+          # 互換性のある v1.8.0 タグを指定してクローン
+          git clone --depth 1 --branch v1.8.0 https://gitlab.com/AOMediaCodec/SVT-AV1.git
           cd SVT-AV1
           mkdir BuildAndroid && cd BuildAndroid
           
-          # NDKのツールチェーンを使用してビルド
           cmake .. \
             -G "Ninja" \
             -DCMAKE_TOOLCHAIN_FILE=$NDK_PATH/build/cmake/android.toolchain.cmake \
@@ -43,10 +43,10 @@ jobs:
           
           ninja install
 
-      # 2. SVT-AV1 を組み込んだ FFmpeg のクロスコンパイル
+      # 2. FFmpeg のクロスコンパイル
       - name: Build FFmpeg Shared Library
         run: |
-          git clone --depth 1 --branch n6.1 https://github.com/FFmpeg/FFmpeg.git ffmpeg-src
+          git clone --depth 1 --branch release/6.1 https://github.com/FFmpeg/FFmpeg.git ffmpeg-src
           cd ffmpeg-src
 
           TOOLCHAIN=$NDK_PATH/toolchains/llvm/prebuilt/linux-x86_64
@@ -73,15 +73,12 @@ jobs:
 
           make -j$(nproc)
 
-          # 必要な .so を 1 つに整理するための出力フォルダ準備
+          # 出力用にディレクトリへ整理
           mkdir -p $GITHUB_WORKSPACE/output_libs
-          cp libavcodec/libavcodec.so $GITHUB_WORKSPACE/output_libs/ 2>/dev/null || true
           cp $SYSROOT/lib/libSvtAv1Enc.so $GITHUB_WORKSPACE/output_libs/
-          
-          # FFmpeg の主要ライブラリをまとめた libffmpeg.so を生成（または主要.soをコピー）
           cp libavformat/libavformat.so $GITHUB_WORKSPACE/output_libs/libffmpeg.so
 
-      # 3. ビルドできた .so ファイルを Artifacts としてアップロード
+      # 3. .so ファイルのアップロード
       - name: Upload Native Libraries
         uses: actions/upload-artifact@v4
         with:
