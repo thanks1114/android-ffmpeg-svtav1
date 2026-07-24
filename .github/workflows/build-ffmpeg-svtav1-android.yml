@@ -22,7 +22,7 @@ jobs:
         run: |
           echo "NDK_PATH=$ANDROID_NDK_LATEST_HOME" >> $GITHUB_ENV
 
-      # 1. SVT-AV1 のソース修正とクロスコンパイル
+      # 1. SVT-AV1 のソース修正とクロスコンパイル (LGPL)
       - name: Build and Install SVT-AV1
         run: |
           git clone --depth 1 --branch v1.8.0 https://gitlab.com/AOMediaCodec/SVT-AV1.git
@@ -42,11 +42,12 @@ jobs:
             -DBUILD_SHARED_LIBS=ON \
             -DBUILD_DEC=OFF \
             -DBUILD_APPS=OFF \
+            -DENABLE_GPL=OFF \
             -DCMAKE_INSTALL_PREFIX=$GITHUB_WORKSPACE/sysroot
           
           ninja install
 
-      # 2. FFmpeg のクロスコンパイル
+      # 2. FFmpeg のクロスコンパイル (LGPL)
       - name: Build FFmpeg Shared Library
         run: |
           git clone --depth 1 --branch release/6.1 https://github.com/FFmpeg/FFmpeg.git ffmpeg-src
@@ -69,7 +70,6 @@ jobs:
             --extra-ldflags="-L$SYSROOT/lib" \
             --enable-shared \
             --disable-static \
-            --enable-gpl \
             --enable-libsvtav1 \
             --disable-doc \
             --disable-programs
