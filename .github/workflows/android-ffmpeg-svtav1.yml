@@ -24,7 +24,7 @@ jobs:
 
       # 3. Android NDK のセットアップ
       - name: Setup Android NDK
-        uses: nvida-actions/setup-android-ndk@v1
+        uses: nvidia-actions/setup-android-ndk@v1  # ← nvidia に修正
         with:
           ndk-version: r25c
 
