@@ -5,7 +5,72 @@ on:
     branches: [ "main", "master" ]
   pull_request:
     branches: [ "main", "master" ]
+  workflow_dispatch:name: Build SVT-AV1 for Android (ARM64)
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
   workflow_dispatch:
+
+jobs:
+  build-android:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. ワークスペースのチェックアウト
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 2. ビルドに必要な基本ツールの取得
+      - name: Install Build Tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build yasm nasm
+
+      # 3. SVT-AV1 公式ソースコードの取得
+      - name: Clone SVT-AV1
+        run: |
+          git clone https://gitlab.com/AOMediaCodec/SVT-AV1.git
+
+      # 4. Android ARM64 向けに CMake & ビルド実行 (標準組み込み NDK を使用)
+      - name: Build SVT-AV1 for Android ARM64
+        working-directory: ./SVT-AV1
+        run: |
+          # runner に標準インストールされている NDK パスを設定
+          NDK_PATH="$ANDROID_NDK_LATEST_HOME"
+          
+          mkdir -p BuildAndroid
+          cd BuildAndroid
+          
+          cmake .. \
+            -G "Ninja" \
+            -DCMAKE_TOOLCHAIN_FILE=$NDK_PATH/build/cmake/android.toolchain.cmake \
+            -DANDROID_ABI=arm64-v8a \
+            -DANDROID_PLATFORM=android-21 \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_SHARED_LIBS=ON \
+            -DBUILD_DEC=OFF \
+            -DBUILD_APPS=OFF
+
+          ninja
+
+      # 5. 生成されたファイル属性の確認
+      - name: Verify Built .so File
+        run: |
+          echo "=== 生成された Android 用 .so ファイル ==="
+          ls -la SVT-AV1/Bin/Release/
+          file SVT-AV1/Bin/Release/libSvtAv1Enc.so || true
+
+      # 6. Android 用 .so ファイルを Artifacts としてアップロード
+      - name: Upload Android ARM64 .so
+        uses: actions/upload-artifact@v4
+        with:
+          name: libSvtAv1Enc-android-arm64-v8a
+          path: |
+            SVT-AV1/Bin/Release/libSvtAv1Enc.so
+          retention-days: 7
 
 jobs:
   build-android:
