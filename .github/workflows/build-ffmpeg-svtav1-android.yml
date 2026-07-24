@@ -22,7 +22,7 @@ jobs:
       run: |
         echo "NDK_PATH=$ANDROID_NDK_LATEST_HOME" >> $GITHUB_ENV
 
-    # 1. SVT-AV1 のクロスコンパイル（Android ARM64 / LGPL）
+    # 1. SVT-AV1 のソースをすべて取得してビルド
     - name: Build SVT-AV1
       run: |
         git clone --depth 1 --branch v1.8.0 https://gitlab.com/AOMediaCodec/SVT-AV1.git
@@ -45,7 +45,7 @@ jobs:
 
         ninja install
 
-    # 2. FFmpeg のクロスコンパイル（LGPL）
+    # 2. FFmpeg のソースをすべて取得してビルド（LGPL）
     - name: Build FFmpeg Shared Library (LGPL)
       run: |
         git clone --depth 1 --branch release/6.1 https://github.com/FFmpeg/FFmpeg.git ffmpeg-src
@@ -57,33 +57,3 @@ jobs:
         export PKG_CONFIG_PATH=$SYSROOT/lib/pkgconfig:$PKG_CONFIG_PATH
 
         ./configure \
-          --target-os=android \
-          --arch=aarch64 \
-          --cpu=armv8-a \
-          --enable-cross-compile \
-          --cc=$TOOLCHAIN/bin/aarch64-linux-android21-clang \
-          --cxx=$TOOLCHAIN/bin/aarch64-linux-android21-clang++ \
-          --sysroot=$TOOLCHAIN/sysroot \
-          --extra-cflags="-I$SYSROOT/include" \
-          --extra-ldflags="-L$SYSROOT/lib" \
-          --enable-shared \
-          --disable-static \
-          --disable-gpl \
-          --disable-nonfree \
-          --enable-libsvtav1 \
-          --disable-doc \
-          --disable-programs
-
-        make -j$(nproc)
-        make install DESTDIR=$GITHUB_WORKSPACE/sysroot
-
-        mkdir -p $GITHUB_WORKSPACE/output_libs
-        cp $SYSROOT/lib/*.so $GITHUB_WORKSPACE/output_libs/
-
-    # 3. Artifacts として保存
-    - name: Upload Native Libraries
-      uses: actions/upload-artifact@v4
-      with:
-        name: android-arm64-libs
-        path: output_libs/*.so
-        retention-days: 7
