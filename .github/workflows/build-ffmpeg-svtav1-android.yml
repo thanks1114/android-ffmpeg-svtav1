@@ -22,11 +22,15 @@ jobs:
         run: |
           echo "NDK_PATH=$ANDROID_NDK_LATEST_HOME" >> $GITHUB_ENV
 
-      # 1. SVT-AV1 のクロスコンパイル (v1.8.0 固定 + Android向けエラー回避フラグ)
+      # 1. SVT-AV1 のソース修正とクロスコンパイル
       - name: Build and Install SVT-AV1
         run: |
           git clone --depth 1 --branch v1.8.0 https://gitlab.com/AOMediaCodec/SVT-AV1.git
           cd SVT-AV1
+          
+          # Android用に pthread_setaffinity_np の呼び出しを空処理に置換
+          sed -i 's/pthread_setaffinity_np/#\/\/ pthread_setaffinity_np/g' Source/Lib/Common/Codec/EbThreads.h
+
           mkdir BuildAndroid && cd BuildAndroid
           
           cmake .. \
@@ -38,12 +42,11 @@ jobs:
             -DBUILD_SHARED_LIBS=ON \
             -DBUILD_DEC=OFF \
             -DBUILD_APPS=OFF \
-            -DCMAKE_C_FLAGS="-Wno-error=implicit-function-declaration" \
             -DCMAKE_INSTALL_PREFIX=$GITHUB_WORKSPACE/sysroot
           
           ninja install
 
-      # 2. SVT-AV1 を組み込んだ FFmpeg のクロスコンパイル
+      # 2. FFmpeg のクロスコンパイル
       - name: Build FFmpeg Shared Library
         run: |
           git clone --depth 1 --branch release/6.1 https://github.com/FFmpeg/FFmpeg.git ffmpeg-src
@@ -72,17 +75,16 @@ jobs:
             --disable-programs
 
           make -j$(nproc)
+          make install PREFIX=$GITHUB_WORKSPACE/sysroot
 
-          # 成果物を格納するディレクトリ作成
+          # 成果物を格納するフォルダ作成
           mkdir -p $GITHUB_WORKSPACE/output_libs
-          cp $SYSROOT/lib/libSvtAv1Enc.so $GITHUB_WORKSPACE/output_libs/
-          cp libavformat/libavformat.so $GITHUB_WORKSPACE/output_libs/libffmpeg.so
+          cp $SYSROOT/lib/*.so $GITHUB_WORKSPACE/output_libs/
 
-      # 3. 生成された .so ファイルを GitHub Artifacts として保存
+      # 3. 生成された .so ファイル群を Artifacts として保存
       - name: Upload Native Libraries
         uses: actions/upload-artifact@v4
         with:
           name: android-arm64-libs
-          path: |
-            output_libs/*.so
+          path: output_libs/*.so
           retention-days: 7
