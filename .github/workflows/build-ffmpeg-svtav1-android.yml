@@ -1,4 +1,4 @@
-name: Build FFmpeg with SVT-AV1 for Android (ARM64)
+name: Build FFmpeg + SVT-AV1 for Android (ARM64, LGPL)
 
 on:
   push:
@@ -10,81 +10,77 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
+    - name: Checkout Repository
+      uses: actions/checkout@v4
 
-      - name: Install Build Dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y cmake ninja-build yasm nasm build-essential pkg-config git
+    - name: Install Build Dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y cmake ninja-build yasm nasm build-essential pkg-config git
 
-      - name: Setup NDK Path
-        run: |
-          echo "NDK_PATH=$ANDROID_NDK_LATEST_HOME" >> $GITHUB_ENV
+    - name: Setup NDK Path
+      run: |
+        echo "NDK_PATH=$ANDROID_NDK_LATEST_HOME" >> $GITHUB_ENV
 
-      # 1. SVT-AV1 のソース修正とクロスコンパイル (LGPL)
-      - name: Build and Install SVT-AV1
-        run: |
-          git clone --depth 1 --branch v1.8.0 https://gitlab.com/AOMediaCodec/SVT-AV1.git
-          cd SVT-AV1
-          
-          # pthread_setaffinity_np の呼び出し全体を安全に (void)0; に置換
-          sed -i 's/pthread_setaffinity_np([^)]*);/(void)0;/g' Source/Lib/Common/Codec/EbThreads.h
+    # 1. SVT-AV1 のクロスコンパイル（Android ARM64）
+    - name: Build SVT-AV1
+      run: |
+        git clone --depth 1 --branch v1.8.0 https://gitlab.com/AOMediaCodec/SVT-AV1.git
+        cd SVT-AV1
 
-          mkdir BuildAndroid && cd BuildAndroid
-          
-          cmake .. \
-            -G "Ninja" \
-            -DCMAKE_TOOLCHAIN_FILE=$NDK_PATH/build/cmake/android.toolchain.cmake \
-            -DANDROID_ABI=arm64-v8a \
-            -DANDROID_PLATFORM=android-21 \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DBUILD_SHARED_LIBS=ON \
-            -DBUILD_DEC=OFF \
-            -DBUILD_APPS=OFF \
-            -DENABLE_GPL=OFF \
-            -DCMAKE_INSTALL_PREFIX=$GITHUB_WORKSPACE/sysroot
-          
-          ninja install
+        mkdir BuildAndroid && cd BuildAndroid
+        cmake .. \
+          -G "Ninja" \
+          -DCMAKE_TOOLCHAIN_FILE=$NDK_PATH/build/cmake/android.toolchain.cmake \
+          -DANDROID_ABI=arm64-v8a \
+          -DANDROID_PLATFORM=android-21 \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DBUILD_SHARED_LIBS=ON \
+          -DBUILD_DEC=OFF \
+          -DBUILD_APPS=OFF \
+          -DCMAKE_INSTALL_PREFIX=$GITHUB_WORKSPACE/sysroot
 
-      # 2. FFmpeg のクロスコンパイル (LGPL)
-      - name: Build FFmpeg Shared Library
-        run: |
-          git clone --depth 1 --branch release/6.1 https://github.com/FFmpeg/FFmpeg.git ffmpeg-src
-          cd ffmpeg-src
+        ninja install
 
-          TOOLCHAIN=$NDK_PATH/toolchains/llvm/prebuilt/linux-x86_64
-          SYSROOT=$GITHUB_WORKSPACE/sysroot
+    # 2. FFmpeg のクロスコンパイル（LGPL）
+    - name: Build FFmpeg Shared Library (LGPL)
+      run: |
+        git clone --depth 1 --branch release/6.1 https://github.com/FFmpeg/FFmpeg.git ffmpeg-src
+        cd ffmpeg-src
 
-          export PKG_CONFIG_PATH=$SYSROOT/lib/pkgconfig:$PKG_CONFIG_PATH
+        TOOLCHAIN=$NDK_PATH/toolchains/llvm/prebuilt/linux-x86_64
+        SYSROOT=$GITHUB_WORKSPACE/sysroot
 
-          ./configure \
-            --target-os=android \
-            --arch=aarch64 \
-            --cpu=armv8-a \
-            --enable-cross-compile \
-            --cc=$TOOLCHAIN/bin/aarch64-linux-android21-clang \
-            --cxx=$TOOLCHAIN/bin/aarch64-linux-android21-clang++ \
-            --sysroot=$TOOLCHAIN/sysroot \
-            --extra-cflags="-I$SYSROOT/include" \
-            --extra-ldflags="-L$SYSROOT/lib" \
-            --enable-shared \
-            --disable-static \
-            --enable-libsvtav1 \
-            --disable-doc \
-            --disable-programs
+        export PKG_CONFIG_PATH=$SYSROOT/lib/pkgconfig:$PKG_CONFIG_PATH
 
-          make -j$(nproc)
-          make install PREFIX=$GITHUB_WORKSPACE/sysroot
+        ./configure \
+          --target-os=android \
+          --arch=aarch64 \
+          --cpu=armv8-a \
+          --enable-cross-compile \
+          --cc=$TOOLCHAIN/bin/aarch64-linux-android21-clang \
+          --cxx=$TOOLCHAIN/bin/aarch64-linux-android21-clang++ \
+          --sysroot=$TOOLCHAIN/sysroot \
+          --extra-cflags="-I$SYSROOT/include" \
+          --extra-ldflags="-L$SYSROOT/lib" \
+          --enable-shared \
+          --disable-static \
+          --disable-gpl \
+          --disable-nonfree \
+          --enable-libsvtav1 \
+          --disable-doc \
+          --disable-programs
 
-          # 成果物を格納するフォルダ作成
-          mkdir -p $GITHUB_WORKSPACE/output_libs
-          cp $SYSROOT/lib/*.so $GITHUB_WORKSPACE/output_libs/
+        make -j$(nproc)
+        make install DESTDIR=$GITHUB_WORKSPACE/sysroot
 
-      # 3. 生成された .so ファイル群を Artifacts として保存
-      - name: Upload Native Libraries
-        uses: actions/upload-artifact@v4
-        with:
-          name: android-arm64-libs
-          path: output_libs/*.so
-          retention-days: 7
+        mkdir -p $GITHUB_WORKSPACE/output_libs
+        cp $GITHUB_WORKSPACE/sysroot/lib/*.so $GITHUB_WORKSPACE/output_libs/
+
+    # 3. Artifacts として保存
+    - name: Upload Native Libraries
+      uses: actions/upload-artifact@v4
+      with:
+        name: android-arm64-libs
+        path: output_libs/*.so
+        retention-days: 7
