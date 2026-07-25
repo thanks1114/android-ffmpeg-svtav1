@@ -75,6 +75,7 @@ jobs:
             --disable-avdevice \
             --enable-libsvtav1 \
             --disable-doc \
+            --disable-examples \
             --disable-programs
 
           make -j$(nproc)
