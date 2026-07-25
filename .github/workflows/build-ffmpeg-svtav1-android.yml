@@ -28,6 +28,7 @@ jobs:
         git clone --depth 1 --branch v1.8.0 https://gitlab.com/AOMediaCodec/SVT-AV1.git
         cd SVT-AV1
 
+        # pthread_setaffinity_np を Android で安全に無効化
         perl -0777 -pi -e 's/pthread_setaffinity_np\s*\([\s\S]*?\);/(void)0;/g' Source/Lib/Common/Codec/EbThreads.h
 
         mkdir BuildAndroid && cd BuildAndroid
@@ -69,7 +70,7 @@ jobs:
           --disable-static \
           --disable-gpl \
           --disable-nonfree \
-          --disable-libavdevice \
+          --disable-avdevice \
           --enable-libsvtav1 \
           --disable-doc \
           --disable-examples \
