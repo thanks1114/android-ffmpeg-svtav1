@@ -84,7 +84,14 @@ jobs:
         mkdir -p $GITHUB_WORKSPACE/output_libs
         cp $SYSROOT/usr/lib/*.so $GITHUB_WORKSPACE/output_libs/
 
-    # 3. libffmpeg.so を生成
+    # 3. SVT-AV1 の .so を FFmpeg の libdir にコピー（重要）
+    - name: Copy SVT-AV1 libs into FFmpeg libdir
+      run: |
+        SYSROOT=$GITHUB_WORKSPACE/sysroot
+        mkdir -p $SYSROOT/usr/lib
+        cp $SYSROOT/lib/libSvtAv1*.so $SYSROOT/usr/lib/
+
+    # 4. libffmpeg.so を生成（統合版）
     - name: Create unified libffmpeg.so
       run: |
         TOOLCHAIN=$NDK_PATH/toolchains/llvm/prebuilt/linux-x86_64
@@ -101,10 +108,10 @@ jobs:
           libswscale.so \
           libswresample.so \
           libavfilter.so \
-          -lSvtAv1Enc \
-          -lSvtAv1Dec
+          libSvtAv1Enc.so \
+          libSvtAv1Dec.so
 
-    # 4. Artifacts として保存
+    # 5. Artifacts として保存
     - name: Upload Native Libraries
       uses: actions/upload-artifact@v4
       with:
