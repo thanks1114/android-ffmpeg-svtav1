@@ -22,13 +22,12 @@ jobs:
       run: |
         echo "NDK_PATH=$ANDROID_NDK_LATEST_HOME" >> $GITHUB_ENV
 
-    # 1. SVT-AV1 のクロスコンパイル（Android ARM64, LGPL）
+    # 1. SVT-AV1 のクロスコンパイル
     - name: Build SVT-AV1
       run: |
         git clone --depth 1 --branch v1.8.0 https://gitlab.com/AOMediaCodec/SVT-AV1.git
         cd SVT-AV1
 
-        # pthread_setaffinity_np を Android で安全に無効化
         perl -0777 -pi -e 's/pthread_setaffinity_np\s*\([\s\S]*?\);/(void)0;/g' Source/Lib/Common/Codec/EbThreads.h
 
         mkdir BuildAndroid && cd BuildAndroid
@@ -46,7 +45,7 @@ jobs:
 
         ninja install
 
-    # 2. FFmpeg のクロスコンパイル（LGPL）
+    # 2. FFmpeg のクロスコンパイル
     - name: Build FFmpeg Shared Library (LGPL)
       run: |
         git clone --depth 1 --branch release/6.1 https://github.com/FFmpeg/FFmpeg.git ffmpeg-src
@@ -67,3 +66,48 @@ jobs:
           --cc=$TOOLCHAIN/bin/aarch64-linux-android21-clang \
           --cxx=$TOOLCHAIN/bin/aarch64-linux-android21-clang++ \
           --sysroot=$TOOLCHAIN/sysroot \
+          --extra-cflags="-I$SYSROOT/include" \
+          --extra-ldflags="-L$SYSROOT/lib" \
+          --enable-shared \
+          --disable-static \
+          --disable-gpl \
+          --disable-nonfree \
+          --disable-avdevice \
+          --enable-libsvtav1 \
+          --disable-doc \
+          --disable-programs \
+          --disable-stripping
+
+        make -j$(nproc)
+        make install DESTDIR=$GITHUB_WORKSPACE/sysroot
+
+        mkdir -p $GITHUB_WORKSPACE/output_libs
+        cp $SYSROOT/usr/lib/*.so $GITHUB_WORKSPACE/output_libs/
+
+    # 3. libffmpeg.so を生成
+    - name: Create unified libffmpeg.so
+      run: |
+        TOOLCHAIN=$NDK_PATH/toolchains/llvm/prebuilt/linux-x86_64
+        SYSROOT=$GITHUB_WORKSPACE/sysroot
+
+        cd $SYSROOT/usr/lib
+
+        $TOOLCHAIN/bin/aarch64-linux-android21-clang \
+          -shared \
+          -o $GITHUB_WORKSPACE/output_libs/libffmpeg.so \
+          libavcodec.so \
+          libavformat.so \
+          libavutil.so \
+          libswscale.so \
+          libswresample.so \
+          libavfilter.so \
+          -lSvtAv1Enc \
+          -lSvtAv1Dec
+
+    # 4. Artifacts として保存
+    - name: Upload Native Libraries
+      uses: actions/upload-artifact@v4
+      with:
+        name: android-arm64-libs
+        path: output_libs/*.so
+        retention-days: 7
