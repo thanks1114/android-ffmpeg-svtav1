@@ -23,7 +23,7 @@ jobs:
         echo "NDK_PATH=$ANDROID_NDK_LATEST_HOME" >> $GITHUB_ENV
 
     # ============================================================
-    # 1. SVT-AV1 のクロスコンパイル（ARM64 誤判定を完全修正）
+    # 1. SVT-AV1 のクロスコンパイル（ARM64 誤判定防止 + x86 SIMD 完全無効化）
     # ============================================================
     - name: Build SVT-AV1
       run: |
@@ -46,9 +46,95 @@ jobs:
           -DBUILD_APPS=OFF \
           -DCMAKE_INSTALL_PREFIX=$GITHUB_WORKSPACE/sysroot \
           -DCMAKE_INSTALL_LIBDIR=lib \
-          \
-          # ★ ARM64 を強制（誤判定防止）
           -DARCH=aarch64 \
           -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
-          \
-          # ★ x86 SIMD を完全無効化
+          -DENABLE_AVX=OFF \
+          -DENABLE_AVX2=OFF \
+          -DENABLE_AVX512=OFF \
+          -DENABLE_SSE2=OFF \
+          -DENABLE_SSE4_1=OFF \
+          -DENABLE_SSE4_2=OFF \
+          -DENABLE_SSSE3=OFF
+
+        ninja install
+
+    # ============================================================
+    # 2. FFmpeg のクロスコンパイル（LGPL）
+    # ============================================================
+    - name: Build FFmpeg Shared Library (LGPL)
+      run: |
+        git clone --depth 1 --branch release/6.1 https://github.com/FFmpeg/FFmpeg.git ffmpeg-src
+        cd ffmpeg-src
+
+        TOOLCHAIN=$NDK_PATH/toolchains/llvm/prebuilt/linux-x86_64
+        SYSROOT=$GITHUB_WORKSPACE/sysroot
+
+        export PKG_CONFIG_PATH=$SYSROOT/lib/pkgconfig:$PKG_CONFIG_PATH
+
+        ./configure \
+          --prefix=/usr \
+          --libdir=/usr/lib \
+          --target-os=android \
+          --arch=aarch64 \
+          --cpu=armv8-a \
+          --enable-cross-compile \
+          --cc=$TOOLCHAIN/bin/aarch64-linux-android21-clang \
+          --cxx=$TOOLCHAIN/bin/aarch64-linux-android21-clang++ \
+          --sysroot=$TOOLCHAIN/sysroot \
+          --extra-cflags="-I$SYSROOT/include" \
+          --extra-ldflags="-L$SYSROOT/lib" \
+          --enable-shared \
+          --disable-static \
+          --disable-gpl \
+          --disable-nonfree \
+          --disable-avdevice \
+          --enable-libsvtav1 \
+          --disable-doc \
+          --disable-programs \
+          --disable-stripping
+
+        make -j$(nproc)
+        make install DESTDIR=$SYSROOT
+
+        mkdir -p $GITHUB_WORKSPACE/output_libs
+        cp $SYSROOT/usr/lib/*.so $GITHUB_WORKSPACE/output_libs/
+
+    # ============================================================
+    # 3. SVT-AV1 の .so を FFmpeg の libdir にコピー
+    # ============================================================
+    - name: Copy SVT-AV1 libs into FFmpeg libdir
+      run: |
+        SYSROOT=$GITHUB_WORKSPACE/sysroot
+        mkdir -p $SYSROOT/usr/lib
+        cp $SYSROOT/lib/libSvtAv1*.so $SYSROOT/usr/lib/
+
+    # ============================================================
+    # 4. libffmpeg.so を生成（統合版）
+    # ============================================================
+    - name: Create unified libffmpeg.so
+      run: |
+        TOOLCHAIN=$NDK_PATH/toolchains/llvm/prebuilt/linux-x86_64
+        SYSROOT=$GITHUB_WORKSPACE/sysroot
+
+        cd $SYSROOT/usr/lib
+
+        $TOOLCHAIN/bin/aarch64-linux-android21-clang \
+          -shared \
+          -o $GITHUB_WORKSPACE/output_libs/libffmpeg.so \
+          libavcodec.so \
+          libavformat.so \
+          libavutil.so \
+          libswscale.so \
+          libswresample.so \
+          libavfilter.so \
+          libSvtAv1Enc.so
+
+    # ============================================================
+    # 5. Artifacts として保存
+    # ============================================================
+    - name: Upload Native Libraries
+      uses: actions/upload-artifact@v4
+      with:
+        name: android-arm64-libs
+        path: output_libs/*.so
+        retention-days: 7
